@@ -1,7 +1,7 @@
 # STACCato
-Supervised Tensor Analysis tool for studying Cell-cell Communication using scRNA-seq data across multiple samples and conditions
+Supervised Tensor Analysis tool for studying Cell-cell Communication using scRNA-seq data across multiple samples and conditions.
 
-![STACCato Framework](Figure1.pdf)
+![STACCato Framework](Figure1.png)
 
 - (1) construct 4-dimensional communication score tensor using multi-sample multi-condition scRNA-seq data; 
 - (2) perform supervised tensor decomposition to estimate the effects of conditions on CCC events and infer activity patterns of cell types; 
