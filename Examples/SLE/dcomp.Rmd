@@ -33,9 +33,8 @@ library(reticulate)
 library(reshape2)
 library(gridExtra)
 
-wk.dir = "~/projects/Projects/STDCC/Package/STACCato"
-source(file.path(wk.dir, 'R/dcomp.R'))
-data.dir = file.path(wk.dir,'Examples/Data/SLE')
+source('../../R/dcomp.R')
+data.dir = 'Data'
 ```
 
 # Load Data
