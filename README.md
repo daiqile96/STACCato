@@ -13,7 +13,7 @@ Supervised Tensor Analysis tool for studying Cell-cell Communication using scRNA
 - Analysis of SLE scRNA-seq data
   - [scRNA-seq data preprocessing](Examples/SLE/0_preproceesing.ipynb)
   - [use Tensor-cell2cell to build communication score tensor](Examples/SLE/1_build_communication_score_tensor.ipynb)
-  - [STACCato decomposition and bootstrapping](https://htmlpreview.github.io/?https://raw.githubusercontent.com/daiqile96/STACCato/main/Examples/SLE/Scripts/dcomp.html)
+  - [STACCato decomposition and bootstrapping](https://htmlpreview.github.io/?https://raw.githubusercontent.com/daiqile96/STACCato/main/Examples/SLE/dcomp.html)
 
 
 
