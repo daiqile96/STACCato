@@ -4,19 +4,14 @@ author: "Qile Dai"
 date: "2023-11-26"
 output: 
   rmarkdown::html_document:
-    theme: united
-    highlight: tango
-    toc: true
-    toc_depth: 6
-    toc_float: true
     number_sections: true
-    fig_caption: true
+    toc: true
+    theme: united
+    toc_depth: 4
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(eval.after = 'fig.cap',dev=c('png','postscript'))
-require(kableExtra)
 ```
 
 # Settings
@@ -33,7 +28,7 @@ library(reticulate)
 library(reshape2)
 library(gridExtra)
 
-source('../../R/dcomp.R')
+source('https://raw.githubusercontent.com/daiqile96/STACCato/main/R/dcomp.R')
 data.dir = 'Data'
 ```
 
