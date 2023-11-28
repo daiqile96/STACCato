@@ -1,0 +1,199 @@
+---
+title: "STACCato Decomposition of SLE dataset"
+author: "Qile Dai"
+date: "2023-11-26"
+output: 
+  rmarkdown::html_document:
+    theme: united
+    highlight: tango
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    number_sections: true
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(eval.after = 'fig.cap',dev=c('png','postscript'))
+require(kableExtra)
+```
+
+# Settings
+
+```{r message=FALSE, warning=FALSE}
+########## Setting ###################
+set.seed(2018)
+library(tensorregress)
+library(R.matlab)
+library(ggplot2)
+library(dplyr)
+library(parallel)
+library(reticulate)
+library(reshape2)
+library(gridExtra)
+
+wk.dir = "~/projects/Projects/STDCC/Package/STACCato"
+source(file.path(wk.dir, 'R/dcomp.R'))
+data.dir = file.path(wk.dir,'Examples/Data/SLE')
+```
+
+# Load Data
+
+Read in sample-level covariates:
+
+```{r}
+cov.mat <- read.table(file.path(data.dir, 'sample_info.txt'), 
+                      header = T, sep = '\t') %>% as.data.frame() %>% 
+  mutate(pop_cov_European = ifelse(pop_cov == 'European', 1, 0),
+         Sex_Male = ifelse(Sex == 'Male', 1, 0),
+         Processing_Cohort_2 = ifelse(Processing_Cohort == 2, 1, 0),
+         Processing_Cohort_3 = ifelse(Processing_Cohort == 3, 1, 0),
+         Processing_Cohort_4 = ifelse(Processing_Cohort == 4, 1, 0),
+         Age = scale(Age)[,1],
+         SLE_status_SLE = ifelse(SLE_status == 'SLE', 1, 0))
+```
+
+Create sample-level design matrix:
+
+```{r}
+cov.ind <- as.matrix(cbind('intercept' = rep(1, nrow(cov.mat)), 
+                           cov.mat[, c('Age', 'Sex_Male', 
+                                       'pop_cov_European',
+                                       'Processing_Cohort_2',
+                                       'Processing_Cohort_3',
+                                       'Processing_Cohort_4',
+                                       'SLE_status_SLE')]))
+cov.names = colnames(cov.ind)
+```
+
+Read in cell cell communication score tensor:
+
+```{r}
+mat.np <- readMat(file.path(data.dir, 'c2ctensor.mat'))
+c2ctensor <- mat.np$c2ctensor
+```
+
+Read in cell type names:
+
+```{r}
+lr.names = read.table(file.path(data.dir, "lr.txt"), header = T,
+                     sep = '\t') %>% unlist()
+sender.names = read.table(file.path(data.dir, "sender.txt"), header = T,
+                         sep = '\t')  %>% unlist()
+receiver.names = read.table(file.path(data.dir, "receiver.txt"), header = T,
+                           sep = '\t')  %>% unlist()
+```
+
+# Decomposition 
+## Determine decomposition rank
+
+Determine the number of components for sender cell type, receiver cell type, and ligand-receptor pair dimension.
+
+```{r}
+c2ctensor = as.tensor(c2ctensor)
+# number of componenets 
+r2 = cal_eigen_varexp(c2ctensor, 2, c(1,3,4), varexp = 1)
+r3 = cal_eigen_varexp(c2ctensor, 3, c(1,2,4), varexp = 1)
+r4 = cal_eigen_varexp(c2ctensor, 4, c(1,2,3), varexp = 1)
+r = c(ncol(cov.ind), r2$rank, r3$rank, r4$rank)
+```
+
+## Perform supervised tensor decomposition 
+```{r results='hide'}
+STACCato_res = staccato(c2ctensor, 
+                        X_covar1 = cov.ind, 
+                        lr.names, sender.names, receiver.names,
+                        core_shape=r, 
+                        niter=100)
+```
+
+# Estimated effects of disease on Communication Events
+
+## Extract estimated SLE disease effects
+
+```{r}
+B = STACCato_res$C_ts
+disease_eff = get_full_effect(B, 
+                              var = 'SLE_status_SLE',
+                              val = 'effect')
+head(disease_eff)
+```
+
+## Assess significance level of estimated SLE disease effects
+
+We performed parametric bootstrap to get p-values for estimated effects.
+
+```{r}
+P = boot_p(n_boot = 999,
+           dcomp_res = STACCato_res,
+           cov = cov.ind,
+           n_thread = 4,
+           lr.names = lr.names,
+           sender.names = sender.names,
+           receiver.names = receiver.names)
+
+disease_pval = get_full_effect(P, 
+                               var='SLE_status_SLE',
+                               val = 'pval')
+head(disease_pval)
+```
+
+## Determine significant estimated SLE disease effects
+
+```{r fig.width=6}
+disease_eff_pval = merge(disease_eff, disease_pval,
+                         by = c('LR', 'Sender', 'Receiver')) 
+plot_eff_pval_sig(disease_eff_pval,
+                  eff_cutoff = 0.01,
+                  pval_cutoff = 5e-02)
+```
+
+```{r}
+disease_eff_sig = get_eff_sig(disease_eff_pval, 0.01, 5e-02)
+```
+
+
+## Plot significant SLE disease effect by cell types
+
+```{r fig.width=12, fig.height=8}
+eff_df = disease_eff_sig %>% 
+  filter(Receiver %in% c('B', 'T8', 'pDC', 'cM')) %>% 
+  select(LR, Sender, Receiver, effect)
+
+plot_disease_eff_by_receiver_cell(eff_df)
+```
+
+
+# Check activity patterns of cell types
+
+## Plot cell factors
+
+```{r}
+cell_level = c('B', 'NK', 'T4', 'T8', 'Prolif', 'cDC', 'pDC','cM', 'ncM')
+cell_label = c('B', 'NK', 'CD4+ T', 'CD8+ T', 'Prolif', 'cDC', 'pDC', 'cM', 'ncM')
+p_cell_factors = plot_sender_receiver(dcomp_res = STACCato_res,
+                                      cell_level = cell_level,
+                                      cell_label = cell_label)
+grid.newpage()
+grid.draw(p_cell_factors)
+```
+
+## Evaluate and plot contributions of cell factors
+
+```{r fig.width=8, fig.height=4}
+p_sender = get_contribution_by_mode(mode = 'W3',
+                                    cov = cov.ind,
+                                    dcomp_res = STACCato_res)
+
+p_receiver = get_contribution_by_mode(mode = 'W4',
+                                      cov = cov.ind,
+                                      dcomp_res = STACCato_res)
+
+grid.arrange(grobs = list(p_sender,
+                          p_receiver),
+                          ncol = 2)
+```
+
+
+
