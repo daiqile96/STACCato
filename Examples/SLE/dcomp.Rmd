@@ -38,7 +38,7 @@ Read in sample-level covariates:
 
 ```{r}
 # read in covariates data
-cov.mat <- read.table(file.path(data.dir, 'filter_subject_info.txt'), 
+cov.mat <- read.table(file.path(data.dir, 'sample_info.txt'), 
                       header = T, sep = '\t') %>% as.data.frame() %>% 
   mutate(pop_cov_European = ifelse(pop_cov == 'European', 1, 0),
          Sex_Male = ifelse(Sex == 'Male', 1, 0),
@@ -96,20 +96,11 @@ r3 = cal_eigen_varexp(c2ctensor, 3, c(1,2,4), varexp = 1)
 # Determine the number of components for ligand-receptor pair
 r4 = cal_eigen_varexp(c2ctensor, 4, c(1,2,3), varexp = 1)
 
-pdf(file.path(out.dir, 'r_lr.pdf'), 
-    height = 4, width = 8)
 plot(r2$p)
-dev.off()
 
-pdf(file.path(out.dir, 'r_sender.pdf'), 
-    height = 4, width = 8)
 plot(r3$p)
-dev.off()
 
-pdf(file.path(out.dir, 'r_receiver.pdf'), 
-    height = 4, width = 8)
 plot(r4$p)
-dev.off()
 ```
 
 ## Perform supervised tensor decomposition 
@@ -146,10 +137,14 @@ staccato_all_cov_P = boot_p(n_boot = 999,
                             lr.names = lrs,
                             sender.names = senders,
                             receiver.names = receivers)
-           
+
+disease_pval = get_full_effect(staccato_all_cov_P, 
+                               var='SLE_status_SLE',
+                               val = 'pval')
+head(disease_pval)
+
 disease_eff_pval = merge(disease_eff, disease_pval,
                          by = c('LR', 'Sender', 'Receiver'))
-head(disease_pval)
 ```
 
 ## Determine significant estimated SLE disease effects
@@ -191,9 +186,11 @@ plot_disease_eff_by_receiver_cell(eff_df) +
 ## Plot cell factors
 
 ```{r}
-plot_sender_receiver(dcomp_res = staccato_all_cov,
-                                      cell_level = cell_level,
-                                      cell_label = cell_label) 
+p_factors = plot_sender_receiver(dcomp_res = staccato_all_cov,
+                                 cell_level = cell_level,
+                                 cell_label = cell_label) 
+grid.newpage()
+grid.draw(p_factors)
 ```
 
 ## Evaluate and plot contributions of cell factors
@@ -207,9 +204,11 @@ p_receiver = get_contribution_by_mode(mode = 'W4',
                                       dcomp_res = staccato_all_cov) +
   theme(text = element_text(face='bold'))
 
-gridExtra::arrangeGrob(grobs = list(p_sender,
-                                    p_receiver), 
-                               ncol = 2)
+p_contributions = gridExtra::arrangeGrob(grobs = list(p_sender,
+                                         p_receiver), 
+                                         ncol = 2)
+grid.newpage()
+grid.draw(p_contributions)
 ```
 
 
