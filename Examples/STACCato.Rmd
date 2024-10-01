@@ -1,0 +1,202 @@
+---
+title: "Apply STACCato to identify condition-related CCC events"
+author: "Qile Dai"
+date: "2024-10-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Inputs
+
+The inputs for this example can be downloaded from [here](https://www.dropbox.com/scl/fo/ffk3dm4y8fgklqtv5srqw/ALAH3njDav9xNeY0BmliOBU?rlkey=cb9ubvcsyejcvv6bpr8c5h2u7&st=7lnap5zv&dl=0). I saved the inputs under the `data.dir`. 
+
+```{r}
+data.dir = '~/projects/Projects/STDCC/Data/RDA/ASD/LIANA_expr_prod'
+```
+
+
+# Settings
+
+```{r message=FALSE, warning=FALSE}
+########## Setting ###################
+set.seed(2018)
+library(tensorregress)
+library(R.matlab)
+library(ggplot2)
+library(dplyr)
+library(parallel)
+library(reticulate)
+library(reshape2)
+library(gridExtra)
+
+source('https://raw.githubusercontent.com/daiqile96/STACCato/main/R/dcomp.R')
+```
+
+# Load Data
+
+Read in individual-level covariates:
+
+```{r}
+# read in covariates data
+cov.mat <- read.table(file.path(data.dir, 'subjects_info.txt'),
+                      header = T, sep = '\t') %>% as.data.frame() %>%
+  mutate(sex_M = ifelse(sex == 'M', 1, 0),
+         Seqbatch_SB1 = ifelse(Seqbatch == 'SB1', 1, 0),
+         age = scale(age)[,1],
+         diagnosis_ASD = ifelse(diagnosis == 'ASD', 1, 0))
+```
+
+Create individual-level design matrix:
+
+```{r}
+cov.ind <- as.matrix(cbind('intercept' = rep(1, nrow(cov.mat)),
+                           cov.mat[, c('age', 'sex_M',
+                                       'Seqbatch_SB1',
+                                       'diagnosis_ASD')]))
+cov.names = colnames(cov.ind)
+```
+
+Read in cell cell communication score tensor:
+
+```{r}
+mat <- readMat(file.path(data.dir, 'c2ctensor.mat'))
+c2ctensor <- as.tensor(mat$c2ctensor)
+```
+
+- check dimension
+```{r}
+dim(c2ctensor@data)
+```
+
+- check zero proportions
+
+```{r}
+1 - mean(c2ctensor@data != 0)
+```
+
+Read in cell type names and ligand-receptor pairs:
+
+```{r}
+lrs = read.table(file.path(data.dir, "lr.txt"),
+                 header = F,
+                 sep = '\t') %>% unlist()
+senders = read.table(file.path(data.dir, "sender.txt"),
+                     header = F,
+                     sep = '\t')  %>% unlist()
+receivers = read.table(file.path(data.dir, "receiver.txt"),
+                       header = F,
+                       sep = '\t')  %>% unlist()
+```
+
+
+# Decomposition
+## Determine decomposition rank
+
+Determine the number of components for sender cell type, receiver cell type, and ligand-receptor pair dimension.
+
+```{r}
+# Determine the number of components for sender cell type
+r2 = cal_eigen_varexp(c2ctensor, 2, c(1,3,4), varexp = 1)
+# Determine the number of components for receiver cell type
+r3 = cal_eigen_varexp(c2ctensor, 3, c(1,2,4), varexp = 1)
+# Determine the number of components for ligand-receptor pair
+r4 = cal_eigen_varexp(c2ctensor, 4, c(1,2,3), varexp = 1)
+
+plot(r2$p)
+
+plot(r3$p)
+
+plot(r4$p)
+```
+
+## Perform tensor-based regression
+
+```{r results='hide'}
+# decomposition rank
+r = c(ncol(cov.ind), r2$rank, r3$rank, r4$rank)
+# staccato
+staccato_all_cov = staccato(tsr=c2ctensor,
+                            X_covar1=cov.ind,
+                            lr.names = lrs,
+                            sender.names = senders,
+                            receiver.names = receivers,
+                            core_shape = r)
+```
+
+## Top 1000 Communication Events
+
+```{r, fig.width=26, fig.height=28}
+disease_eff = get_full_effect(staccato_all_cov$C_ts,
+                              var = 'diagnosis_ASD',
+                              val = 'effect')
+
+select_pattern = disease_eff %>%
+  mutate(Pattern = paste(LR, Sender, Receiver, sep = ' - ')) %>%
+  arrange(desc(abs(effect))) %>%
+  slice(1:1000) %>%
+  dplyr::select(Pattern) %>%
+  unlist(.) %>% as.character(.)
+
+disease_eff_top = disease_eff %>%
+  mutate(Pattern = paste(LR, Sender, Receiver, sep = ' - ')) %>%
+  filter(Pattern %in% select_pattern)
+
+# top_cells = unique(disease_eff_pval$Sender)[8:17]
+
+disease_eff_top$panel <- ifelse(disease_eff_top$Receiver %in% c("AST-FB", "AST-PP", "Endothelial",
+                                                                "IN-PV", "IN-SST", "IN-SV2C", "IN-VIP"),
+                                "Panel 1", "Panel 2")
+
+max = max(abs(disease_eff_top$effect))
+
+p_compare_receiver_selected = ggplot(disease_eff_top %>%
+                                       mutate(Receiver = paste('Receiver:', Receiver)),
+                                     aes(Sender, LR)) +    # Create default ggplot2 heatmap
+  geom_tile(aes(fill = effect)) +
+  scale_fill_gradient2(name = 'Disease Effect',
+                       limits = c(-1 * max, max),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       guide = guide_colorbar(barwidth = 30)) +
+  theme_linedraw() +
+  theme(text = element_text(size = 20, face = 'bold'),
+        axis.text.x = element_text(angle=90,vjust = 1, hjust=1),
+        legend.position = 'top',
+        legend.text = element_text(size = 16),
+        strip.background = element_rect(fill = "white"),
+        strip.text = element_text(color = 'black')) +
+  facet_wrap(~Receiver, ncol = 6) +
+  xlab('Sender Cell Types') +
+  ylab('Ligand - Receptor Pairs')
+
+p_compare_receiver_selected
+```
+
+## Perform Bootstrap to get p-values for estimated effects
+
+While fitting of a single STACCato tensor-based regression only takes seconds, assessing the significance level of estimated effects by bootstrapping (requiring multiple iterations of model fitting) takes hours of CPU time. Here we performed 20 times boostrap as an example to show how to use bootstrap to get p-values.
+
+```{r}
+# bootstrap
+n_boot = 20
+n_thread = 5
+P = boot_p(n_boot = n_boot,
+           dcomp_res = staccato_all_cov,
+           n_thread = n_thread,
+           lr.names = lrs,
+           sender.names = senders,
+           receiver.names = receivers)
+```
+
+
+```{r}
+disease_pval = get_full_effect(P,
+                               var='diagnosis_ASD',
+                               val = 'pval')
+head(disease_pval)
+```
+
