@@ -430,9 +430,15 @@ boot = function(idx, dcomp_res){
   B = dcomp_res$C_ts
   r = dim(dcomp_res$G)
   sd = sqrt(dcomp_res$sigma)
+  input = dcomp_res$input
   
-  # parametric bootstrap 
-  new.residuals =  array(rnorm(U, sd = sd), dim = d)
+  # non-parametric bootstrap 
+  # new.residuals =  array(rnorm(U, sd = sd), dim = d)
+  cat("Using NON-PARAMETRIC bootstrap\n")
+  residuals = as.vector(input - U)
+  new.residuals = array(sample(residuals, size = length(residuals), replace = TRUE), 
+                        dim = d)
+  
   new.Y = as.tensor(U + new.residuals)
   new.res = staccato(new.Y, dcomp_res$X_covar1, 
                      core_shape=r)
